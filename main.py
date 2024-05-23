@@ -52,11 +52,11 @@ async def main() -> None:
     elif action == 2:
         accounts = await Accounts().get_accounts()
         tasks = []
-        for thread, account in enumerate(accounts):
+        for account in accounts:
             session_proxy: str = await db_actions.get_session_proxy_by_name(session_name=account)
 
             tasks.append(asyncio.create_task(
-                Start(session_name=account, thread=thread, session_proxy=session_proxy).main()))
+                Start(session_name=account, session_proxy=session_proxy).main()))
 
         await asyncio.gather(*tasks)
 
