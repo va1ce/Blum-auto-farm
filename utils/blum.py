@@ -60,7 +60,7 @@ class Start:
 
 
     async def main(self):
-        await self.tg_client.start()  # Начинаем сессию клиента перед использованием
+        await self.tg_client.start()
 
         proxy_conn = ProxyConnector().from_url(self.session_proxy) if self.session_proxy else None
 
@@ -97,7 +97,23 @@ class Start:
                                     logger.error(f"Поток {self.session_name} | Ошибка при клейме игры: {msg}")
 
                                 await asyncio.sleep(random.uniform(5, 10))
-                                timestamp, start_time, end_time, play_passes = await self.balance(http_client=http_client)
+                                play_passes -= 1
+
+                            for task in await self.get_tasks(http_client=http_client):
+                                if task['status'] == 'CLAIMED' or task['title'] in 'Farm points': continue
+
+                                if task['status'] == "NOT_STARTED":
+                                    await self.start_complete_task(http_client=http_client, task=task)
+                                    await asyncio.sleep(random.uniform(5, 10))
+                                elif task['status'] == 'STARTED':
+                                    await asyncio.sleep(random.uniform(5, 10))
+
+                                if await self.claim_task(http_client=http_client, task=task):
+                                    logger.success(f"Поток {self.session_name} | Задание выполнено «{task['title']}»")
+                                else:
+                                    logger.error(f"Поток {self.session_name} | Ошибка в выполнении задания «{task['title']}»")
+
+                            timestamp, start_time, end_time, play_passes = await self.balance(http_client=http_client)
 
                             if start_time is None and end_time is None:
                                 # Случайная задержка от 1 до 5 минут перед началом фарма
@@ -112,9 +128,8 @@ class Start:
                                 # Случайная задержка от 1 до 5 минут минут перед клеймом награды
                                 await asyncio.sleep(random.uniform(60, 300))
 
-                                timestamp, balance = await self.friend_claim(http_client=http_client)
-                                logger.success(
-                                    f"Поток {self.session_name} | Получена награда за друзей! Баланс: {balance}")
+                                await self.friend_claim(http_client=http_client)
+
 
                             else:
                                 logger.info(
@@ -164,17 +179,6 @@ class Start:
 
     async def friend_claim(self, http_client: aiohttp.ClientSession):
         resp = await http_client.post("https://gateway.blum.codes/v1/friends/claim")
-        resp_json = await resp.json()
-
-        timestamp = resp_json.get("timestamp")
-        available_balance = resp_json.get("availableBalance")
-
-        if timestamp is not None and available_balance is not None:
-            return int(timestamp / 1000), available_balance
-        else:
-            logger.error(
-                "Ошибка при клейме награды за друзей: неверный формат данных")
-            return None, None
 
 
     async def start(self, http_client: aiohttp.ClientSession):
@@ -212,12 +216,28 @@ class Start:
 
     async def claim_game(self, game_id: str, http_client: aiohttp.ClientSession):
         await asyncio.sleep(random.uniform(50, 80))
-        points = random.randint(70, 150)
+        points = random.randint(100, 220)
         json_data = {"gameId": game_id, "points": points}
         resp = await http_client.post("https://game-domain.blum.codes/api/v1/game/claim", json=json_data)
         txt = await resp.text()
 
         return True if txt == 'OK' else txt, points
+    
+
+    async def get_tasks(self, http_client: aiohttp.ClientSession):
+        resp = await http_client.get('https://game-domain.blum.codes/api/v1/tasks')
+
+        return await resp.json()
+    
+
+    async def start_complete_task(self, http_client: aiohttp.ClientSession, task: dict):
+        resp = await http_client.post(f'https://game-domain.blum.codes/api/v1/tasks/{task["id"]}/start')
+
+
+    async def claim_task(self, http_client: aiohttp.ClientSession, task: dict):
+        resp = await http_client.post(f'https://game-domain.blum.codes/api/v1/tasks/{task["id"]}/claim')
+
+        return (await resp.json()).get('status') == "CLAIMED"
 
 
     async def login(self, http_client: aiohttp.ClientSession, proxy: str | None):
